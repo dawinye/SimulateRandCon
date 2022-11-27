@@ -7,5 +7,7 @@ import (
 
 func main() {
 	args := os.Args
+	
+	
 	fmt.Println(args)
 }
