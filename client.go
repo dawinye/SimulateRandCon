@@ -3,9 +3,11 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"math"
+	"errors"
+	"reflect"
 	"sync"
 	"time"
-	"reflect"
 )
 type Map struct {
 	syncMap sync.Map
@@ -16,19 +18,48 @@ type data struct {
 	val float64
 	round int
 }
-
-func ChanToSlice(ch interface{}) interface{} {
+//func ChanToFloat(ch interface{}) interface {} {
+//	chv
+//}
+func ChanToSlice(ch interface{}, N int, f int) interface{} {
 	chv := reflect.ValueOf(ch)
 	slv := reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(ch).Elem()), 0, 0)
-	for {
+	for j:= 0; j< N-f; j++{
+		
 		v, ok := chv.Recv()
+		fmt.Println(v, ok)
 		if !ok {
 			return slv.Interface()
 		}
 		slv = reflect.Append(slv, v)
 	}
-
+	return slv.Interface()
+	
 }
+var errUnexpectedType = errors.New("Non-numeric type could not be converted to float")
+func getFloatSwitchOnly(unk interface{}) (float64, error) {
+	switch i := unk.(type) {
+	case float64:
+		return i, nil
+	case float32:
+		return float64(i), nil
+	case int64:
+		return float64(i), nil
+	case int32:
+		return float64(i), nil
+	case int:
+		return float64(i), nil
+	case uint64:
+		return float64(i), nil
+	case uint32:
+		return float64(i), nil
+	case uint:
+		return float64(i), nil
+	default:
+		return math.NaN(), errUnexpectedType
+	}
+}
+
 
 
 func (m *Map) Load(i int) chan interface{} {
@@ -63,60 +94,67 @@ type channel chan interface{}
 func createNode(i int, val float64, waitsFor int) {
 
 	dataChannel := make(channel, waitsFor)
+	
 	nodes.Store(i, dataChannel)
+	
 	rounds[i] = 1
-	fmt.Printf("%d, %f\n", i, val)
 }
 //send one node's value to another one
 func sendValue(to int, round int, val float64){
-	d := data{val, round}
-	fmt.Println(d)
+	//d := data{val, round}
+	//fmt.Println(d)
 	for {
 		mutex.RLock()
 		toRound, _ := rounds[to]
 		if toRound == round {
 			channel := nodes.Load(to)
-			channel <- d
+			channel <- val
+			mutex.RUnlock()
 			break
 		}
-		mutex.RUnlock()
 	}
+	fmt.Println("Sent ", val, " to ", to)
 }
 
 
-func findConsensus(i int, N int, f int, r int, initVal float64){
-	fmt.Printf("here")
+func findConsensus(i int, N int, f int, r int, initVal float64) float64{
 	//according to randomized to the consensus algorithm we learned,
 	//one of the nodes that are included in n-f must be itself
 	//therefore, we send that value first and then skip it in the for loop
-	d := data{initVal,r}
+	//d := data{initVal,r}
 	self := nodes.Load(i)
-	self <- d
-	fmt.Println(self)
-	for j:= 0; j < N; {
-
+	self <- initVal
+	for j:= 0; j < N; j++{
+		
 		if j == i{
 			continue
 		}
 		//making this a goroutine spawns an infinite amount of print statements for some reason
 		//leaving it like this stops the program since its stuck on something
-		sendValue(j, r, initVal)
+		go sendValue(j, r, initVal)
 	}
-
+	
 	//infinite for loop to see if N-f messages are in the channel,
-	var newVal float64
+	var sum float64
 	for {
-		if cap(self) == N-f {
-			//stole some code to convert channel interface to a slice interface of type data
-			sl := ChanToSlice(self).([]data)
 
-			//calculate the average
-			for _, d := range sl {
-				newVal += d.val
+		if len(self) == cap(self) {
+
+			for j := 0; j < N-f; j++ {
+				newVal := <- self
+				v, _ := getFloatSwitchOnly(newVal)
+				sum += v
 			}
+			
+			
+			//sl := ChanToSlice(self, N, f).([]float64)
+			//fmt.Println("here")
+			//for j:=0; j < N-f; j++ {
+			//	sum += sl[j]
+			//}
 			total := float64(N-f)
-			newVal /= total
-
+			sum /= total
+			//fmt.Println(sum)
 			break
 		}
 	}
@@ -124,11 +162,10 @@ func findConsensus(i int, N int, f int, r int, initVal float64){
 	mutex.Lock()
 	rounds[i] += 1
 	mutex.Unlock()
-	fmt.Printf("%f", newVal)
-
+	fmt.Println(rounds)
+	fmt.Printf("New average for node %d is : %f\n",i,  sum)
 	//run recursively to begin next round
-	findConsensus(i, N, f, r+1, newVal)
-
+	return findConsensus(i, N, f, r+1, sum)
 }
 //TODO
 //func simulateDelay()
@@ -178,5 +215,4 @@ func main() {
 	}
 	//sleeping to give time for the go routines in the above line time to run, will replace with a signal from the server on when to stop
 	time.Sleep(10 * time.Second)
-	fmt.Println(N,f,values)
 }
