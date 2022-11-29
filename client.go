@@ -17,26 +17,11 @@ type Map struct {
 }
 
 
-type data struct {
-	val float64
-	round int
+type Data struct {
+	Val float64
+	Round int
 }
 
-//func ChanToSlice(ch interface{}, N int, f int) interface{} {
-//	chv := reflect.ValueOf(ch)
-//	slv := reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(ch).Elem()), 0, 0)
-//	for j:= 0; j< N-f; j++{
-//
-//		v, ok := chv.Recv()
-//		fmt.Println(v, ok)
-//		if !ok {
-//			return slv.Interface()
-//		}
-//		slv = reflect.Append(slv, v)
-//	}
-//	return slv.Interface()
-//
-//}
 var errUnexpectedType = errors.New("Non-numeric type could not be converted to float")
 func getFloatSwitchOnly(unk interface{}) (float64, error) {
 	switch i := unk.(type) {
@@ -92,25 +77,35 @@ var nodes Map
 var mutex = &sync.RWMutex{}
 //i have no clue what this means
 type channel chan interface{}
-var binBuf = new(bytes.Buffer)
-var gobobj = gob.NewEncoder(binBuf)
+
 
 //initalize each node's channel and entries in both maps
 func createNode(i int, val float64, waitsFor int) {
 
 	dataChannel := make(channel, waitsFor)
-	
+
 	nodes.Store(i, dataChannel)
 	mutex.Lock()
 	rounds[i] = 1
 	mutex.Unlock()
 }
 //send one node's value to another one
-func sendValue(to int, round int, val float64, c net.Conn){
-	d := data{val, round}
+func sendValue(self int, to int, round int, val float64, c net.Conn){
+	d := Data{val, round}
 	//fmt.Println(d)
+	var binBuf = new(bytes.Buffer)
+	var gobobj = gob.NewEncoder(binBuf)
 	gobobj.Encode(d)
-	c.Write(binBuf.Bytes())
+
+	_, err  := c.Write(binBuf.Bytes())
+
+	if err != nil{
+		fmt.Println(err)
+	}
+	if self == to {
+		return
+	}
+	time.Sleep(1*time.Second)
 	for {
 		mutex.RLock()
 		toRound, _ := rounds[to]
@@ -133,13 +128,8 @@ func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) floa
 	self := nodes.Load(i)
 	self <- initVal
 	for j:= 0; j < N; j++{
-		
-		if j == i{
-			continue
-		}
-		//making this a goroutine spawns an infinite amount of print statements for some reason
-		//leaving it like this stops the program since its stuck on something
-		go sendValue(j, r, initVal,c)
+		fmt.Println(j)
+		go sendValue(i, j, r, initVal,c)
 	}
 	
 	//infinite for loop to see if N-f messages are in the channel,

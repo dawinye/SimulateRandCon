@@ -5,50 +5,48 @@ import (
 	"fmt"
 	"encoding/gob"
 	"net"
-
 	"io"
 	"os"
 	"strconv"
 )
-var m = make(map[int]net.Conn)
+
 var vals = make(map[int][]float64)
 
-type data struct {
-	val float64
-	round int
+type Data struct {
+	Val float64
+	Round int
 }
 
 func handleConn(conn net.Conn) {
-	tmp := make([]byte, 2)
+	tmp := make([]byte, 500)
 	//fmt.Println(tmp)
 	for {
+		d := new(Data)
 		_, err := conn.Read(tmp)
-		d := new(data)
+		
 		tmpBuff := bytes.NewBuffer(tmp)
 		gobObj := gob.NewDecoder(tmpBuff)
 		gobObj.Decode(d)
 		if err == io.EOF {
 			conn.Close()
-
 			fmt.Println("One of the nodes is now faulty")
-
 			return
 		}
-		fmt.Println(tmp)
-		vals[d.round] = append(vals[d.round], d.val)
+		fmt.Println(*d)
+		vals[d.Round] = append(vals[d.Round], d.Val)
 		fmt.Println(vals)
 	}
 }
-func stopConsensus() {
-	stopClients()
-	os.Exit(10)
-}
-func stopClients() {
-	for _, conn := range m{
-
-		conn.Write([]byte("EXIT"))
-	}
-}
+//func stopConsensus() {
+//	stopClients()
+//	os.Exit(10)
+//}
+//func stopClients() {
+//	for _, conn := range m{
+//
+//		conn.Write([]byte("EXIT"))
+//	}
+//}
 func main() {
 	args := os.Args
 
