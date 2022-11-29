@@ -8,10 +8,11 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 )
 
 var vals = make(map[int][]float64)
-
+var mutex = &sync.RWMutex{}
 type Data struct {
 	Val float64
 	Round int
@@ -33,7 +34,9 @@ func handleConn(conn net.Conn) {
 			return
 		}
 		fmt.Println(*d)
+		mutex.Lock()
 		vals[d.Round] = append(vals[d.Round], d.Val)
+		mutex.Unlock()
 		fmt.Println(vals)
 	}
 }

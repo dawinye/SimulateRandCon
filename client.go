@@ -91,19 +91,21 @@ func createNode(i int, val float64, waitsFor int) {
 }
 //send one node's value to another one
 func sendValue(self int, to int, round int, val float64, c net.Conn){
-	d := Data{val, round}
-	//fmt.Println(d)
-	var binBuf = new(bytes.Buffer)
-	var gobobj = gob.NewEncoder(binBuf)
-	gobobj.Encode(d)
+	fmt.Println(self, to, round, val)
 
-	_, err  := c.Write(binBuf.Bytes())
-
-	if err != nil{
-		fmt.Println(err)
-	}
 	if self == to {
+		d := Data{val, round}
+		//fmt.Println(d)
+		var binBuf = new(bytes.Buffer)
+		var gobobj = gob.NewEncoder(binBuf)
+		gobobj.Encode(d)
+
+		_, err  := c.Write(binBuf.Bytes())
+		if err != nil{
+			fmt.Println(err)
+		}
 		return
+
 	}
 	time.Sleep(1*time.Second)
 	for {
@@ -116,11 +118,11 @@ func sendValue(self int, to int, round int, val float64, c net.Conn){
 			break
 		}
 	}
-	fmt.Println("Sent ", val, " to ", to)
+	//fmt.Println("Sent ", val, " to ", to)
 }
 
 
-func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) float64{
+func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) {
 	//according to randomized to the consensus algorithm we learned,
 	//one of the nodes that are included in n-f must be itself
 	//therefore, we send that value first and then skip it in the for loop
@@ -128,28 +130,18 @@ func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) floa
 	self := nodes.Load(i)
 	self <- initVal
 	for j:= 0; j < N; j++{
-		fmt.Println(j)
 		go sendValue(i, j, r, initVal,c)
 	}
-	
+	time.Sleep(1*time.Second)
 	//infinite for loop to see if N-f messages are in the channel,
 	var sum float64
 	for {
-
 		if len(self) == cap(self) {
-
 			for j := 0; j < N-f; j++ {
 				newVal := <- self
 				v, _ := getFloatSwitchOnly(newVal)
 				sum += v
 			}
-			
-			
-			//sl := ChanToSlice(self, N, f).([]float64)
-			//fmt.Println("here")
-			//for j:=0; j < N-f; j++ {
-			//	sum += sl[j]
-			//}
 			total := float64(N-f)
 			sum /= total
 			//fmt.Println(sum)
@@ -163,7 +155,8 @@ func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) floa
 	//fmt.Println(rounds)
 	fmt.Printf("New average for node %d is : %f\n",i,  sum)
 	//run recursively to begin next round
-	return findConsensus(i, N, f, r+1, sum,c)
+
+	findConsensus(i, N, f, r+1, sum,c)
 }
 //TODO
 //func simulateDelay()
