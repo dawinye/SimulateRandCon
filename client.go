@@ -131,8 +131,8 @@ func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) {
 	self <- initVal
 	for j:= 0; j < N; j++{
 		go sendValue(i, j, r, initVal,c)
+		time.Sleep(1*time.Second)
 	}
-	time.Sleep(1*time.Second)
 	//infinite for loop to see if N-f messages are in the channel,
 	var sum float64
 	for {
