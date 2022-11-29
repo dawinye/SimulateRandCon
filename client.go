@@ -4,8 +4,11 @@ import (
 	"os"
 	"strconv"
 	"math"
+	"net"
 	"errors"
-	"reflect"
+	//"reflect"
+	"bytes"
+	"encoding/gob"
 	"sync"
 	"time"
 )
@@ -18,24 +21,22 @@ type data struct {
 	val float64
 	round int
 }
-//func ChanToFloat(ch interface{}) interface {} {
-//	chv
+
+//func ChanToSlice(ch interface{}, N int, f int) interface{} {
+//	chv := reflect.ValueOf(ch)
+//	slv := reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(ch).Elem()), 0, 0)
+//	for j:= 0; j< N-f; j++{
+//
+//		v, ok := chv.Recv()
+//		fmt.Println(v, ok)
+//		if !ok {
+//			return slv.Interface()
+//		}
+//		slv = reflect.Append(slv, v)
+//	}
+//	return slv.Interface()
+//
 //}
-func ChanToSlice(ch interface{}, N int, f int) interface{} {
-	chv := reflect.ValueOf(ch)
-	slv := reflect.MakeSlice(reflect.SliceOf(reflect.TypeOf(ch).Elem()), 0, 0)
-	for j:= 0; j< N-f; j++{
-		
-		v, ok := chv.Recv()
-		fmt.Println(v, ok)
-		if !ok {
-			return slv.Interface()
-		}
-		slv = reflect.Append(slv, v)
-	}
-	return slv.Interface()
-	
-}
 var errUnexpectedType = errors.New("Non-numeric type could not be converted to float")
 func getFloatSwitchOnly(unk interface{}) (float64, error) {
 	switch i := unk.(type) {
@@ -80,6 +81,8 @@ func (m *Map) Exists(i int) bool {
 func (m *Map) Delete(i int) {
 	m.syncMap.Delete(i)
 }
+
+
 //rounds is a regular map that will be accessed using mutexes because it doesnt
 //fall under sync.Map's use cases
 var rounds = make(map[int]int)
@@ -89,6 +92,8 @@ var nodes Map
 var mutex = &sync.RWMutex{}
 //i have no clue what this means
 type channel chan interface{}
+var binBuf = new(bytes.Buffer)
+var gobobj = gob.NewEncoder(binBuf)
 
 //initalize each node's channel and entries in both maps
 func createNode(i int, val float64, waitsFor int) {
@@ -96,20 +101,23 @@ func createNode(i int, val float64, waitsFor int) {
 	dataChannel := make(channel, waitsFor)
 	
 	nodes.Store(i, dataChannel)
-	
+	mutex.Lock()
 	rounds[i] = 1
+	mutex.Unlock()
 }
 //send one node's value to another one
-func sendValue(to int, round int, val float64){
-	//d := data{val, round}
+func sendValue(to int, round int, val float64, c net.Conn){
+	d := data{val, round}
 	//fmt.Println(d)
+	gobobj.Encode(d)
+	c.Write(binBuf.Bytes())
 	for {
 		mutex.RLock()
 		toRound, _ := rounds[to]
+		mutex.RUnlock()
 		if toRound == round {
 			channel := nodes.Load(to)
 			channel <- val
-			mutex.RUnlock()
 			break
 		}
 	}
@@ -117,7 +125,7 @@ func sendValue(to int, round int, val float64){
 }
 
 
-func findConsensus(i int, N int, f int, r int, initVal float64) float64{
+func findConsensus(i int, N int, f int, r int, initVal float64, c net.Conn) float64{
 	//according to randomized to the consensus algorithm we learned,
 	//one of the nodes that are included in n-f must be itself
 	//therefore, we send that value first and then skip it in the for loop
@@ -131,7 +139,7 @@ func findConsensus(i int, N int, f int, r int, initVal float64) float64{
 		}
 		//making this a goroutine spawns an infinite amount of print statements for some reason
 		//leaving it like this stops the program since its stuck on something
-		go sendValue(j, r, initVal)
+		go sendValue(j, r, initVal,c)
 	}
 	
 	//infinite for loop to see if N-f messages are in the channel,
@@ -162,22 +170,22 @@ func findConsensus(i int, N int, f int, r int, initVal float64) float64{
 	mutex.Lock()
 	rounds[i] += 1
 	mutex.Unlock()
-	fmt.Println(rounds)
+	//fmt.Println(rounds)
 	fmt.Printf("New average for node %d is : %f\n",i,  sum)
 	//run recursively to begin next round
-	return findConsensus(i, N, f, r+1, sum)
+	return findConsensus(i, N, f, r+1, sum,c)
 }
 //TODO
 //func simulateDelay()
 func main() {
 	//TODO: ERROR CHECKING
 
-
+	
 	//run using
 	//go run client.go [server to connect to] [N number of nodes] [number of faults] [list of N values between 0 and 1]
 	args := os.Args
-	//serverNo := args[1]
-
+	port := args[1]
+	c, err := net.Dial("tcp4", "127.0.0.1:"+port)
 	N, err:= strconv.Atoi(args[2])
 	if err != nil {
 		fmt.Println("The second value that you supplied was not an integer, please rerun the program")
@@ -211,7 +219,7 @@ func main() {
 		if err != nil{
 			fmt.Printf("The %dth value that you supplied was not a float, please rerun the program\n", i+1)
 		}
-		go findConsensus(i, N, f, 1, value)
+		go findConsensus(i, N, f, 1, value,c)
 	}
 	//sleeping to give time for the go routines in the above line time to run, will replace with a signal from the server on when to stop
 	time.Sleep(10 * time.Second)
